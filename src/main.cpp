@@ -1,68 +1,55 @@
-#include "casm/clex/ConfigMapping.hh"
-#include "casm/clex/PrimClex.hh"
+#include <casm/crystallography/Structure.hh>
+#include <casm/clex/ConfigMapping.hh>
+#include <casm/clex/PrimClex.hh>
 #include <casm/CASM_global_definitions.hh>
 #include <casm/casm_io/VaspIO.hh>
-#include <casm/crystallography/Niggli.hh>
-#include <casm/crystallography/Structure.hh>
 #include <iostream>
 
-CASM::Structure get_primitive(const CASM::Structure& superstruc);
-
-double structure_map(
-    const CASM::fs::path POS_a, const CASM::fs::path POS_b, double weight = 0.0, double vol_tol = 0.5, tol = CASM::TOL)
+CASM::Structure get_primitive(const CASM::Structure& input)
 {
-    // get prim_a and prim_b
-    CASM::Structure struct_a(POS_a);
-    CASM::BasicStructure<CASM::Site> prim_a;
-    struct_a.is_primitive(prim_a);
-    CASM::Structure struct_b(POS_b);
-    CASM::BasicStructure<CASM::Site> prim_b;
-    struct_b.is_primitive(prim_b);
-    // make primclex
-    CASM::PrimClex pclex(CASM::Structure(prim_a), CASM::Logging());
-    // map
-    int options = 2; // robust
-    CASM::ConfigMapper configmapper(pclex, weight, vol_tol, options, tol);
-    CASM::jsonParser out;
-    std::string name;
-    std::vector<CASM::Index> best;
-    Eigen::Matrix3d cart_op;
-    configmapper.import_structure_occupation(prim_b, name, out, best, cart_op, true);
-    double basis = out["best_mapping"]["basis_deformation"].get<double>();
-    double lattice = out["best_mapping"]["lattice_deformation"].get<double>();
-    return weight * lattice + (1 - weight) * basis;
+    CASM::Structure true_prim;
+    input.is_primitive(true_prim);
+    return true_prim;
 }
 
 double structure_score(const CASM::Structure& map_reference_struc,
                        const CASM::Structure& mappable_struc,
                        double weight = 0.0,
                        double vol_tol = 0.5,
-                       tol = CASM::TOL)
+                       double tol = CASM::TOL)
 {
-    auto ref_prim=get_primitive(map_reference_struc);
-
-    CASM::PrimClex pclex(ref_prim);
-
-    // map
-    int options = 2; // robust
+    // get prim and make PrimClex
+    auto ref_prim=get_primitive(map_reference_struc);	
+    CASM::Log log(std::cout, 0);
+    CASM::Logging logging(log);
+    CASM::PrimClex pclex(ref_prim, logging);
+   
+    // map it 
+    CASM::Structure mappable_copy(mappable_struc);  // can't be const, make copy
+    int options = 2;  // robust mapping
     CASM::ConfigMapper configmapper(pclex, weight, vol_tol, options, tol);
-    CASM::jsonParser out;
-    std::string name;
-    std::vector<CASM::Index> best;
-    Eigen::Matrix3d cart_op;
-    configmapper.import_structure_occupation(mappable_struc, name, out, best, cart_op, true);
+    CASM::jsonParser out;           // mapping output
+    std::string name;               // not used
+    std::vector<CASM::Index> best;  // not used
+    Eigen::Matrix3d cart_op;        // not used
+    bool update = false;
+    configmapper.import_structure_occupation(mappable_copy, name, out, best, cart_op, update);
     double basis = out["best_mapping"]["basis_deformation"].get<double>();
     double lattice = out["best_mapping"]["lattice_deformation"].get<double>();
     return weight * lattice + (1 - weight) * basis;
+
 }
 
 int main()
 {
     /**
      * Let's find the mapping score between two POSCARs
-     */
-    CASM::fs::path POS_a = "POSCAR_a";
-    CASM::fs::path POS_b = "CONTCAR_a";
-    std::cout << "Total mapping score: " << structure_map(POS_a, POS_b) << std::endl;
+     */  
+
+    CASM::Structure ref_struc("POSCAR_a");
+    CASM::Structure map_struc("CONTCAR_a");
+    std::cout << "Basis score: " << structure_score(ref_struc, map_struc, 0.0) << std::endl;
+    std::cout << "Lattice score: " << structure_score(ref_struc, map_struc, 1.0) << std::endl;
     return 0;
 }
+
